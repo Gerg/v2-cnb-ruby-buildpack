@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+
+set -x
+
+# build_path=$1
+
+export CNB_LAYERS_DIR=/home/vcap/layers
+yj_path="/tmp/yj" # from bin/finalize
+start_command=$("$yj_path" -tj < "$CNB_LAYERS_DIR/launch.toml" | jq '[.processes[0].command, (.processes[0].args | join(" "))] | join(" ")')
+echo -e "---\ndefault_process_types:\n  web: '$start_command'"
