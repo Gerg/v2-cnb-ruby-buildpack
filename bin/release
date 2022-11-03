@@ -4,6 +4,12 @@ set -x
 
 # build_path=$1
 
+yj_path="/tmp/yj"
+if [ ! -f "$yj_path" ]; then
+    wget "https://github.com/sclevine/yj/releases/download/v5.1.0/yj-linux-amd64" -O "$yj_path"
+    chmod +x "$yj_path"
+fi
+
 export CNB_LAYERS_DIR=/home/vcap/layers
 yj_path="/tmp/yj" # from bin/finalize
 start_command=$("$yj_path" -tj < "$CNB_LAYERS_DIR/launch.toml" | jq '[.processes[0].command, (.processes[0].args | join(" "))] | join(" ")')

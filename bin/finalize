@@ -1,114 +1,101 @@
 #!/usr/bin/env bash
 
+set -e
 set -x
 
 build_path=$1
-cache_path=$2
-deps_path=$3
-index=$4
+_cache_path=$2
+_deps_path=$3
+_index=$4
 
 echo "Build Path: $build_path"
-echo "Cache Path: $cache_path"
-echo "Deps Path: $deps_path"
-echo "Index: $index"
+echo "Cache Path: $_cache_path"
+echo "Deps Path: $_deps_path"
+echo "Index: $_index"
 
 pwd
 ls -al
-ls -al ./app
-ls -al /tmp
-ls -al $build_path
-ls -al /tmp/buildpacks
-ls -al $cache_path
-ls -al $deps_path
-ls -al /tmp/lifecycle
+ls -al "$HOME/app"
+ls -al "/tmp"
+ls -al "$build_path"
 
-version_placeholder=version
+# spec: https://github.com/buildpacks/spec/blob/main/platform.md#environment
+export CNB_STACK_ID="io.buildpacks.stacks.bionic"
 
-get_cnb () {
-   bp_name=$1
-   bp_url=$2
-   bp_version=$3
-   bp_dir="$cache_path/$bp_name/$bp_version"
-   if [ ! -d "$bp_dir" ]; then
-       mkdir -p "$bp_dir"
-       bp_tar="$bp_dir/$bp_name.tgz"
-       wget "$bp_url" -O "$bp_tar"
-       tar -xvf "$bp_tar" -C "$bp_dir"
-   fi
+# download builder and detector from v3 lifecycle
+download_dir="$HOME/download"
+mkdir -p "$download_dir"
+
+download_tar () {
+    file_name=$1
+    url=$2
+    output_dir="$download_dir/$file_name"
+
+    mkdir -p "$output_dir"
+    tar_path="$download_dir/$file_name.tgz"
+    wget -q "$url" -O "$tar_path"
+    tar -xf "$tar_path" -C "$output_dir"
 }
 
 lifecycle="lifecycle"
-
 mri_bp="mri"
-mri_bp_version="0.8.3"
 bundler_bp="bundler"
 bundle_install_bp="bundle_install"
 rackup_bp="rackup"
 
-get_cnb $lifecycle "https://github.com/buildpacks/lifecycle/releases/download/v0.14.1/lifecycle-v0.14.1+linux.x86-64.tgz" $version_placeholder
-get_cnb $mri_bp "https://github.com/paketo-buildpacks/mri/releases/download/v0.8.3/mri-0.8.3.tgz" $mri_bp_version
-get_cnb $bundler_bp "https://github.com/paketo-buildpacks/bundler/releases/download/v0.5.3/bundler-0.5.3.tgz" $version_placeholder
-get_cnb $bundle_install_bp "https://github.com/paketo-buildpacks/bundle-install/releases/download/v0.5.2/bundle-install-0.5.2.tgz" $version_placeholder
-get_cnb $rackup_bp "https://github.com/paketo-buildpacks/rackup/releases/download/v0.4.0/rackup-0.4.0.tgz" $version_placeholder
+download_tar $lifecycle "https://github.com/buildpacks/lifecycle/releases/download/v0.14.1/lifecycle-v0.14.1+linux.x86-64.tgz"
 
-yj_path="$cache_path/yj"
-if [ ! -f "$yj_path" ]; then
-    wget "https://github.com/sclevine/yj/releases/download/v5.1.0/yj-linux-amd64" -O "$yj_path"
-    chmod +x "$yj_path"
-fi
+download_tar $mri_bp "https://github.com/paketo-buildpacks/mri/releases/download/v0.8.3/mri-0.8.3.tgz"
+download_tar $bundler_bp "https://github.com/paketo-buildpacks/bundler/releases/download/v0.5.3/bundler-0.5.3.tgz"
+download_tar $bundle_install_bp "https://github.com/paketo-buildpacks/bundle-install/releases/download/v0.5.2/bundle-install-0.5.2.tgz"
+download_tar $rackup_bp "https://github.com/paketo-buildpacks/rackup/releases/download/v0.4.0/rackup-0.4.0.tgz"
 
-cp "$yj_path" "/tmp/yj" # for use in bin/release
+# set up the buildpacks directory correctly
+# spec: https://github.com/buildpacks/spec/blob/main/platform.md#buildpacks-directory-layout
 
-mkdir /home/vcap/layers
-mkdir /home/vcap/platform
+export CNB_BUILDPACKS_DIR="$HOME/cnb_buildpacks"
+version_placeholder="version"
 
-export CNB_LAYERS_DIR=/home/vcap/layers
-export CNB_PLATFORM_DIR=/home/vcap/platform
-export CNB_BUILDPACKS_DIR=$cache_path
+mkdir -p "$CNB_BUILDPACKS_DIR"
 
-export CNB_STACK_ID=io.buildpacks.stacks.bionic
+setup_bp () {
+    name=$1
 
-export CNB_BP_PLAN_PATH=/home/vcap/layers/plan.toml
-export CNB_BUILD_PLAN_PATH=$CNB_BP_PLAN_PATH
-
-group_path=/home/vcap/layers/group.toml
-order_path=/home/vcap/order.toml
-plan_path=$CNB_BP_PLAN_PATH
-
-touch $group_path
-
-cat > $order_path <<- EOM
-[[order]]
-[[order.group]]
-    id = "mri"
-    version = "$mri_bp_version"
-EOM
-
-touch $plan_path
-
-# cat > $plan_path <<- EOM
-# [[entries]]
-
-# [entries.metadata]
-# EOM
-
-cd "$build_path" || return
-
-echo "$($cache_path/$lifecycle/$version_placeholder/lifecycle/detector -app=$build_path -group=$group_path -order=$order_path -plan=$plan_path -buildpacks=$cache_path)"
-
-execute_cnb () {
-    bp_name=$1
-    bp_version=$2
-    bp_path="$cache_path/$bp_name/$2"
-    export CNB_BUILDPACK_DIR="$bp_path"
-    # "$bp_path/bin/detect"
-    "$bp_path/bin/build"
-    cat $CNB_BP_PLAN_PATH
+    bp_dir="$CNB_BUILDPACKS_DIR/$name/$version_placeholder"
+    mkdir -p "$bp_dir"
+    cp -a "$download_dir/$name/." "$bp_dir"
+    ls -al "$bp_dir"
 }
 
-execute_cnb "$mri_bp" "$mri_bp_version"
-execute_cnb "$bundler_bp" "$version_placeholder"
-execute_cnb "$bundle_install_bp" "$version_placeholder"
-execute_cnb "$rackup_bp" "$version_placeholder"
+setup_bp "$mri_bp"
+setup_bp "$bundler_bp"
+setup_bp "$bundle_install_bp"
+setup_bp "$rackup_bp"
+
+# use home/vcap/app as build directory
+
+export CNB_APP_DIR="$HOME/app"
+mkdir -p "$CNB_APP_DIR"
+
+# move /tmp/app/w/e to /home/vcap/w/e
+
+cp -a "$build_path/." "$CNB_APP_DIR"
+ls -al "$CNB_APP_DIR"
+
+# layers directory: home/vcap/layers
+export CNB_LAYERS_DIR="$HOME/layers"
+mkdir -p "$CNB_LAYERS_DIR"
+
+# point v3 detectors to build directory
+# spec: https://github.com/buildpacks/spec/blob/main/platform.md#detector
+
+export CNB_LOG_LEVEL="debug"
+export CNB_ORDER_PATH="$HOME/order.toml"
+export CNB_PLATFORM_DIR="$HOME/platform"
+
+mkdir -p "$CNB_PLATFORM_DIR"
+touch "$CNB_ORDER_PATH"
 
 [ -n "$BP_SLEEP" ] && sleep 100000
+
+"$download_dir/$lifecycle/lifecycle/detector"
