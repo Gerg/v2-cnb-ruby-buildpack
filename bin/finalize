@@ -91,11 +91,43 @@ mkdir -p "$CNB_LAYERS_DIR"
 
 export CNB_LOG_LEVEL="debug"
 export CNB_ORDER_PATH="$HOME/order.toml"
+
+cat > "$CNB_ORDER_PATH" <<- EOM
+[[order]]
+
+    [[order.group]]
+        id = "$mri_bp"
+        version = "$version_placeholder"
+
+    [[order.group]]
+        id = "$bundler_bp"
+        version = "$version_placeholder"
+
+    [[order.group]]
+        id = "$bundle_install_bp"
+        version = "$version_placeholder"
+
+    [[order.group]]
+        id = "$rackup_bp"
+        version = "$version_placeholder"
+EOM
+
+cat "$CNB_ORDER_PATH"
+
+export CNB_GROUP_PATH="$CNB_LAYERS_DIR/group.toml"
+touch "$CNB_GROUP_PATH"
+
+export CNB_PLAN_PATH="$CNB_LAYERS_DIR/plan.toml"
+touch "$CNB_PLAN_PATH"
+
 export CNB_PLATFORM_DIR="$HOME/platform"
 
 mkdir -p "$CNB_PLATFORM_DIR"
-touch "$CNB_ORDER_PATH"
-
-[ -n "$BP_SLEEP" ] && sleep 100000
 
 "$download_dir/$lifecycle/lifecycle/detector"
+
+ls -al "$CNB_LAYERS_DIR"
+cat "$CNB_PLAN_PATH"
+cat "$CNB_GROUP_PATH"
+
+[ -n "$BP_SLEEP" ] && sleep 100000
