@@ -5,13 +5,15 @@ set -x
 
 _build_path=$1
 
+# Tool for converting toml to json
 yj_path="/tmp/yj"
 if [ ! -f "$yj_path" ]; then
     wget -q "https://github.com/sclevine/yj/releases/download/v5.1.0/yj-linux-amd64" -O "$yj_path"
     chmod +x "$yj_path"
 fi
 
-export CNB_LAYERS_DIR="$HOME/layers"
-export metadata_path="$CNB_LAYERS_DIR/config/metadata.toml"
+export CNB_LAYERS_DIR="$HOME/deps"
+metadata_path="$CNB_LAYERS_DIR/config/metadata.toml"
+
 start_command=$("$yj_path" -tj < "$CNB_LAYERS_DIR/config/metadata.toml" | jq '[.processes[0].command, (.processes[0].args | join(" "))] | join(" ")')
 echo -e "---\ndefault_process_types:\n  web: '$start_command'"

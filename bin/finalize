@@ -5,19 +5,22 @@ set -x
 
 build_path=$1
 _cache_path=$2
-_deps_path=$3
+deps_path=$3
 _index=$4
+profile_path=$5
 
 echo "Build Path: $build_path"
 echo "Cache Path: $_cache_path"
-echo "Deps Path: $_deps_path"
+echo "Deps Path: $deps_path"
 echo "Index: $_index"
+echo "Profile Path: $profile_path"
 
 pwd
 ls -al
 ls -al "$HOME/app"
 ls -al "/tmp"
 ls -al "$build_path"
+ls -al "$profile_path"
 
 # spec: https://github.com/buildpacks/spec/blob/main/platform.md#environment
 export CNB_STACK_ID="io.buildpacks.stacks.bionic"
@@ -52,7 +55,6 @@ download_tar $rackup_bp "https://github.com/paketo-buildpacks/rackup/releases/do
 
 # set up the buildpacks directory correctly
 # spec: https://github.com/buildpacks/spec/blob/main/platform.md#buildpacks-directory-layout
-
 export CNB_BUILDPACKS_DIR="$HOME/cnb_buildpacks"
 version_placeholder="version"
 
@@ -73,25 +75,26 @@ setup_bp "$bundle_install_bp"
 setup_bp "$rackup_bp"
 
 # use home/vcap/app as build directory
-
 export CNB_APP_DIR="$HOME/app"
 mkdir -p "$CNB_APP_DIR"
 
 # move /tmp/app/w/e to /home/vcap/w/e
-
 cp -a "$build_path/." "$CNB_APP_DIR"
 ls -al "$CNB_APP_DIR"
 
-# layers directory: home/vcap/layers
-export CNB_LAYERS_DIR="$HOME/layers"
+# this needs to be /home/vcap/deps, so that it matches the same directory at runtime
+# buildpacks will include absolute paths referencing this directory
+export CNB_LAYERS_DIR="$HOME/deps"
 mkdir -p "$CNB_LAYERS_DIR"
 
 # point v3 detectors to build directory
 # spec: https://github.com/buildpacks/spec/blob/main/platform.md#detector
-
 export CNB_LOG_LEVEL="debug"
 export CNB_ORDER_PATH="$HOME/order.toml"
 
+# create an order.toml, so the cnb lifecycle knows what buildpacks to run
+# I think this would normally come from an aggregate buildpack like this:
+# https://github.com/paketo-buildpacks/ruby/blob/a89e48a1325c31064ab8d7fff40fd16c27fd2bbc/buildpack.toml#L17-L345
 cat > "$CNB_ORDER_PATH" <<- EOM
 [[order]]
 
@@ -114,24 +117,55 @@ EOM
 
 cat "$CNB_ORDER_PATH"
 
+# Make some more toml, so the buildpacks can collaborate
 export CNB_GROUP_PATH="$CNB_LAYERS_DIR/group.toml"
 touch "$CNB_GROUP_PATH"
 
 export CNB_PLAN_PATH="$CNB_LAYERS_DIR/plan.toml"
 touch "$CNB_PLAN_PATH"
 
+# Not sure if this is actually used for anything, but it's in the spec...
 export CNB_PLATFORM_DIR="$HOME/platform"
-
 mkdir -p "$CNB_PLATFORM_DIR"
 
+# run the cnb lifecycle detector
+# spec: https://github.com/buildpacks/spec/blob/main/platform.md#detector
 "$download_dir/$lifecycle/lifecycle/detector"
 
 ls -al "$CNB_LAYERS_DIR"
 cat "$CNB_PLAN_PATH"
 cat "$CNB_GROUP_PATH"
 
+# run the cnb lifecycle builder
+# spec: https://github.com/buildpacks/spec/blob/main/platform.md#builder
 "$download_dir/$lifecycle/lifecycle/builder"
 
+ls -al "$CNB_PLATFORM_DIR"
 ls -al "$CNB_LAYERS_DIR"
 
+# this will be used in the release script for harvesting start commands
+metadata_path="$CNB_LAYERS_DIR/config/metadata.toml"
+cat "$metadata_path"
+
+# copy all of our layers onto the deps path, so they are included in the droplet
+cp -a "$CNB_LAYERS_DIR/." "$deps_path"
+
+# not well documented, but this file is how we are going to set environment variables at runtime
+# file name comes from here (not sure this is even the correct source):
+# https://github.com/cloudfoundry/libbuildpack/blob/8f5ee8c4444a00084f646bb946fa37706aabecb7/stager_unix.go#L13
+#
+# The PATH includes "bin" directories for the layers, in this case bundler and mri
+# The other environment variables come from "env" directories for the layers
+# Hardcoded for ease of implementation and reading, bue we could figure out these dynamically...
+profile_script="$profile_path/000_multi-supply.sh"
+cat > "$profile_script" <<- 'EOM'
+export PATH=$DEPS_DIR/paketo-buildpacks_bundler/bundler/bin:$DEPS_DIR/paketo-buildpacks_mri/mri/bin$([[ ! -z "${PATH:-}" ]] && echo ":$PATH")
+export BUNDLE_USER_CONFIG=$DEPS_DIR/paketo-buildpacks_bundle-install/launch-gems/config
+export GEM_PATH=$DEPS_DIR/paketo-buildpacks_bundler/bundler
+EOM
+
+ls -al "$build_path"
+cat "$profile_script"
+
+# For debugging purposes
 if [[ -n "$BP_SLEEP" ]]; then sleep 100000; fi
