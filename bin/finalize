@@ -130,4 +130,8 @@ ls -al "$CNB_LAYERS_DIR"
 cat "$CNB_PLAN_PATH"
 cat "$CNB_GROUP_PATH"
 
-[ -n "$BP_SLEEP" ] && sleep 100000
+"$download_dir/$lifecycle/lifecycle/builder"
+
+ls -al "$CNB_LAYERS_DIR"
+
+if [[ -n "$BP_SLEEP" ]]; then sleep 100000; fi
